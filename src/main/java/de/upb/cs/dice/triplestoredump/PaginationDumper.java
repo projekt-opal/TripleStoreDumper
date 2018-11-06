@@ -42,6 +42,9 @@ public class PaginationDumper implements CredentialsProvider {
     @Value("${tripleStore.password}")
     private String tripleStorePassword;
 
+    @Value("${server.address}")
+    private String serverAddress;
+
     private org.apache.http.impl.client.CloseableHttpClient client;
     private org.apache.http.auth.Credentials credentials;
 
@@ -111,20 +114,22 @@ public class PaginationDumper implements CredentialsProvider {
             }
 
             //add pagination info
-            Resource thisPageAddress = ResourceFactory.createResource("http://projekt-opal.de/catalog.rdf?page = " + (idx / PAGE_SIZE + 1));
+            String addressPattern = serverAddress + "/model%d.ttl";
+            Resource thisPageAddress = ResourceFactory.createResource(String.format(addressPattern, (idx / PAGE_SIZE + 1)));
             model.add(thisPageAddress, RDF.type, NS4.PagedCollection);
             model.add(thisPageAddress, NS4.firstPage,
-                    ResourceFactory.createResource("http://projekt-opal.de/catalog.rdf?page = " + 1));
+                    ResourceFactory.createResource(String.format(addressPattern, 1)));
             if(idx + PAGE_SIZE < totalNumberOfDataSets)
                 model.add(thisPageAddress, NS4.nextPage,
-                    ResourceFactory.createResource("http://projekt-opal.de/catalog.rdf?page = " + ((idx / PAGE_SIZE + 1) + 1)));
+                    ResourceFactory.createResource(String.format(addressPattern, ((idx / PAGE_SIZE + 1) + 1))));
             model.add(thisPageAddress, NS4.lastPage,
-                    ResourceFactory.createResource("http://projekt-opal.de/catalog.rdf?page = " + (totalNumberOfDataSets / PAGE_SIZE + 1)));
+                    ResourceFactory.createResource(String.format(addressPattern, (totalNumberOfDataSets / PAGE_SIZE + 1))));
             model.add(thisPageAddress, NS4.itemsPerPage, ResourceFactory.createTypedLiteral(PAGE_SIZE));
             model.add(thisPageAddress, NS4.totalItems, ResourceFactory.createTypedLiteral(totalNumberOfDataSets));
 
             //write model
-            try (FileWriter out = new FileWriter("model" + (idx / PAGE_SIZE + 1) + ".ttl")) {
+            String fileName = String.format("model%d.ttl", (idx / PAGE_SIZE + 1));
+            try (FileWriter out = new FileWriter(fileName)) {
                 model.write(out, "TURTLE");
             } catch (IOException closeException) {
                 // ignore
