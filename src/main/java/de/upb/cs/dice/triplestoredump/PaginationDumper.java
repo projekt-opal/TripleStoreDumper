@@ -9,7 +9,6 @@ import org.apache.http.auth.Credentials;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.jena.datatypes.RDFDatatype;
 import org.apache.jena.query.ParameterizedSparqlString;
 import org.apache.jena.query.QueryExecution;
 import org.apache.jena.query.QuerySolution;
@@ -17,15 +16,12 @@ import org.apache.jena.query.ResultSet;
 import org.apache.jena.rdf.model.*;
 import org.apache.jena.vocabulary.DCAT;
 import org.apache.jena.vocabulary.RDF;
-import org.apache.jena.vocabulary.XSD;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import sun.plugin.dom.html.ns4.NS4DOMObject;
 
 import java.io.FileWriter;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,6 +40,9 @@ public class PaginationDumper implements CredentialsProvider {
 
     @Value("${server.address}")
     private String serverAddress;
+
+    @Value("${output.folderPath}")
+    private String folderPath;
 
     private org.apache.http.impl.client.CloseableHttpClient client;
     private org.apache.http.auth.Credentials credentials;
@@ -68,12 +67,14 @@ public class PaginationDumper implements CredentialsProvider {
         qef = new QueryExecutionFactoryHttp(
                 tripleStoreURL, new org.apache.jena.sparql.core.DatasetDescription(), client);
         qef = new QueryExecutionFactoryRetry(qef, 5, 1000);
-        qef = new QueryExecutionFactoryDelay(qef, 200);
+//        qef = new QueryExecutionFactoryDelay(qef, 100);
 
     }
 
     public void dump() throws Exception {
 
+
+        logger.info("dumping is started");
 
         //First, get the total number of datasets in the triple store.
         //Then, get names of datasets from triple store page by page (100 dataset in each request)
@@ -84,9 +85,9 @@ public class PaginationDumper implements CredentialsProvider {
 
 
         long totalNumberOfDataSets = getTotalNumberOfDataSets();
+        logger.debug("Total number of datasets is {}", totalNumberOfDataSets);
         if (totalNumberOfDataSets == -1) {
-            logger.error("Cannot Query the TripleStore");
-            throw new Exception("Cannot Query the TripleStore");// TODO: 31.10.18 Throw Exception or not
+            throw new Exception("Cannot Query the TripleStore");
         }
 
         Resource opal = ResourceFactory.createResource("http://projekt-opal.de/opal");
@@ -95,8 +96,7 @@ public class PaginationDumper implements CredentialsProvider {
             List<Resource> listOfDataSets = getListOfDataSets(idx);
 
             if (listOfDataSets.size() != PAGE_SIZE && listOfDataSets.size() != totalNumberOfDataSets - idx) {
-                logger.error("There is an error in getting dataSets from TripleStore");
-                throw new Exception("There is an error in getting dataSets from TripleStore");// TODO: 31.10.18 Throw Exception or not
+                throw new Exception("There is an error in getting dataSets from TripleStore");
             }
 
             Model model = ModelFactory.createDefaultModel();
@@ -106,8 +106,7 @@ public class PaginationDumper implements CredentialsProvider {
             for (Resource dataSet : listOfDataSets) {
                 Model dataSetGraph = getAllPredicatesObjectsPublisherDistributions(dataSet);
                 if (dataSetGraph == null) {
-                    logger.error("There is an error in getting {} graph", dataSet);
-                    throw new Exception("There is an error in getting " + dataSet + " graph");// TODO: 31.10.18 Throw Exception or not
+                    throw new Exception("There is an error in getting " + dataSet + " graph");
                 }
                 model.add(dataSetGraph);
                 model.add(opal, DCAT.dataset, dataSet);
@@ -129,12 +128,9 @@ public class PaginationDumper implements CredentialsProvider {
 
             //write model
             String fileName = String.format("model%d.ttl", (idx / PAGE_SIZE + 1));
-            try (FileWriter out = new FileWriter(fileName)) {
+            try (FileWriter out = new FileWriter(folderPath  +"/" + fileName)) {
                 model.write(out, "TURTLE");
-            } catch (IOException closeException) {
-                // ignore
             }
-
         }
 
 
@@ -174,8 +170,10 @@ public class PaginationDumper implements CredentialsProvider {
                 "    FILTER(EXISTS{?dataSet dct:title ?title.})\n" +
                 "  }\n" +
                 "}\n" +
+                "ORDER BY ?dataSet\n" +
                 "OFFSET \n" + idx +
-                "LIMIT " + PAGE_SIZE);
+                "LIMIT " + PAGE_SIZE
+                );
 
         pss.setNsPrefixes(PREFIXES);
 
