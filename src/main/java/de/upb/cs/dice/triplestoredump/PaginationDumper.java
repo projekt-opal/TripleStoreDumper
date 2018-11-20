@@ -1,7 +1,6 @@
 package de.upb.cs.dice.triplestoredump;
 
 import com.google.common.collect.ImmutableMap;
-import org.aksw.jena_sparql_api.delay.core.QueryExecutionFactoryDelay;
 import org.aksw.jena_sparql_api.http.QueryExecutionFactoryHttp;
 import org.aksw.jena_sparql_api.retry.core.QueryExecutionFactoryRetry;
 import org.apache.http.auth.AuthScope;
@@ -19,13 +18,17 @@ import org.apache.jena.vocabulary.RDF;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
 
 @Component
+@EnableScheduling
 public class PaginationDumper implements CredentialsProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(PaginationDumper.class);
@@ -38,13 +41,12 @@ public class PaginationDumper implements CredentialsProvider {
     @Value("${tripleStore.password}")
     private String tripleStorePassword;
 
-    @Value("${server.address}")
+    @Value("${internalFileServer.address}")
     private String serverAddress;
 
     @Value("${output.folderPath}")
     private String folderPath;
 
-    private org.apache.http.impl.client.CloseableHttpClient client;
     private org.apache.http.auth.Credentials credentials;
 
     private org.aksw.jena_sparql_api.core.QueryExecutionFactory qef;
@@ -56,12 +58,26 @@ public class PaginationDumper implements CredentialsProvider {
             .build();
     private static final int PAGE_SIZE = 100;
 
-    private void intialQueryExcutionFactory() {
+    @Scheduled(cron = "${info.dumper.scheduler}")
+    public void scheduledDumping() {
+        try {
+            dump();
+        } catch (Exception e) {
+            logger.error("{}", e);
+        }
+    }
+
+    @PostConstruct
+    public void initializeAuthenticationAndQueryExecution() {
+        initialQueryExecutionFactory();
+    }
+
+    private void initialQueryExecutionFactory() {
         credentials = new UsernamePasswordCredentials(tripleStoreUsername, tripleStorePassword);
 
         HttpClientBuilder clientBuilder = HttpClientBuilder.create();
         clientBuilder.setDefaultCredentialsProvider(this);
-        client = clientBuilder.build();
+        org.apache.http.impl.client.CloseableHttpClient client = clientBuilder.build();
 
 
         qef = new QueryExecutionFactoryHttp(
@@ -81,7 +97,7 @@ public class PaginationDumper implements CredentialsProvider {
         //After that, for each of those 100 datasets get all predicate and object and also dcat:publisher and dcat:Distribution related to that dataset,
         //Finally, generate a file for all those 100 datasets and mention the address for the next page
 
-        intialQueryExcutionFactory();
+//        initialQueryExecutionFactory();
 
 
         long totalNumberOfDataSets = getTotalNumberOfDataSets();
@@ -119,9 +135,9 @@ public class PaginationDumper implements CredentialsProvider {
             model.add(thisPageAddress, RDF.type, NS4.PagedCollection);
             model.add(thisPageAddress, NS4.firstPage,
                     ResourceFactory.createResource(String.format(addressPattern, 1)));
-            if(idx + PAGE_SIZE < totalNumberOfDataSets)
+            if (idx + PAGE_SIZE < totalNumberOfDataSets)
                 model.add(thisPageAddress, NS4.nextPage,
-                    ResourceFactory.createResource(String.format(addressPattern, ((idx / PAGE_SIZE + 1) + 1))));
+                        ResourceFactory.createResource(String.format(addressPattern, ((idx / PAGE_SIZE + 1) + 1))));
             model.add(thisPageAddress, NS4.lastPage,
                     ResourceFactory.createResource(String.format(addressPattern, (totalNumberOfDataSets / PAGE_SIZE + 1))));
             model.add(thisPageAddress, NS4.itemsPerPage, ResourceFactory.createTypedLiteral(PAGE_SIZE));
@@ -129,7 +145,7 @@ public class PaginationDumper implements CredentialsProvider {
 
             //write model
             String fileName = String.format("model%d.ttl", (idx / PAGE_SIZE + 1));
-            try (FileWriter out = new FileWriter(folderPath  +"/" + fileName)) {
+            try (FileWriter out = new FileWriter(folderPath + "/" + fileName)) {
                 model.write(out, "TURTLE");
             }
         }
@@ -174,7 +190,7 @@ public class PaginationDumper implements CredentialsProvider {
                 "ORDER BY ?dataSet\n" +
                 "OFFSET \n" + idx +
                 "LIMIT " + PAGE_SIZE
-                );
+        );
 
         pss.setNsPrefixes(PREFIXES);
 
