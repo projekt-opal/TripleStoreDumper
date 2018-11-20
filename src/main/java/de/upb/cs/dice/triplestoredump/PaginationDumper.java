@@ -108,6 +108,7 @@ public class PaginationDumper implements CredentialsProvider {
                 if (dataSetGraph == null) {
                     throw new Exception("There is an error in getting " + dataSet + " graph");
                 }
+                // TODO: 19.11.18 Check similar titles
                 model.add(dataSetGraph);
                 model.add(opal, DCAT.dataset, dataSet);
             }
