@@ -14,9 +14,11 @@ import org.apache.jena.query.QuerySolution;
 import org.apache.jena.query.ResultSet;
 import org.apache.jena.rdf.model.*;
 import org.apache.jena.vocabulary.DCAT;
+import org.apache.jena.vocabulary.DCTerms;
 import org.apache.jena.vocabulary.RDF;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,6 +28,7 @@ import javax.annotation.PostConstruct;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Component
 @EnableScheduling
@@ -57,6 +60,13 @@ public class PaginationDumper implements CredentialsProvider {
             .put("dct", "http://purl.org/dc/terms/")
             .build();
     private static final int PAGE_SIZE = 100;
+
+
+
+    @Autowired
+    private InfoDataSetRepository infoDataSetRepository;
+
+
 
     @Scheduled(cron = "${info.dumper.scheduler}")
     public void scheduledDumping() {
@@ -124,7 +134,21 @@ public class PaginationDumper implements CredentialsProvider {
                 if (dataSetGraph == null) {
                     throw new Exception("There is an error in getting " + dataSet + " graph");
                 }
-                // TODO: 19.11.18 Check similar titles
+                //CKAN specific ( title in the CKAN is the key)
+                if(titleIsRepetitive(dataSet, dataSetGraph)) {
+                    String title = getTitle(dataSet, dataSetGraph).getString();
+                    String portal = getPortal(dataSet, dataSetGraph);
+                    Optional<InfoDataSet> info = infoDataSetRepository.findByTitleAndPortal(title, portal);
+                    dataSetGraph.remove(dataSetGraph.getRequiredProperty(dataSet, DCTerms.title));
+                    InfoDataSet infoDataSet;
+                    if(info.isPresent()) {
+                        infoDataSet = info.get();
+                        infoDataSet.setCnt(infoDataSet.getCnt() + 1);
+                    } else infoDataSet = new InfoDataSet(title, portal, 1);
+                    infoDataSetRepository.save(infoDataSet);
+                    dataSetGraph.add(dataSet, DCTerms.title, ResourceFactory.createStringLiteral(
+                            String.format("%s (%s_%d)", title, portal, infoDataSet.getCnt())));
+                }
                 model.add(dataSetGraph);
                 model.add(opal, DCAT.dataset, dataSet);
             }
@@ -149,9 +173,42 @@ public class PaginationDumper implements CredentialsProvider {
                 model.write(out, "TURTLE");
             }
         }
+    }
 
+    //should not throw exception
+    private String getPortal(Resource dataSet, Model dataSetGraph) {
+        String uri = dataSet.getURI();
+        String[] split = uri.split("/");
+        return split[2].substring(0, split[2].indexOf('.'));
+    }
 
-//        pss.setParam("property", property);
+    private boolean titleIsRepetitive(Resource dataSet, Model dataSetGraph) {
+
+        Literal title = getTitle(dataSet, dataSetGraph);
+
+        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
+                "SELECT (COUNT(DISTINCT ?dataSet) AS ?num)\n" +
+                "WHERE\n" +
+                "{\n" +
+                "  GRAPH ?g {\n" +
+                "    ?dataSet  dct:title  ?title .\n" +
+                "  }\n" +
+                "}");
+
+        pss.setNsPrefixes(PREFIXES);
+        pss.setParam("title", title);
+        try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
+            ResultSet resultSet = queryExecution.execSelect();
+            if(resultSet.hasNext()) {
+                int num = resultSet.nextSolution().get("num").asLiteral().getInt();
+                return num > 1;
+            }
+        }
+        return false;
+    }
+
+    private Literal getTitle(Resource dataSet, Model dataSetGraph) {
+        return dataSetGraph.getRequiredProperty(dataSet, DCTerms.title).getLiteral();
     }
 
     private Model getAllPredicatesObjectsPublisherDistributions(Resource dataSet) {
