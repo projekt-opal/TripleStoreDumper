@@ -102,12 +102,12 @@ public class PaginationDumper implements CredentialsProvider {
 
         logger.info("dumping is started");
 
+        infoDataSetRepository.deleteAll();
+
         //First, get the total number of datasets in the triple store.
         //Then, get names of datasets from triple store page by page (100 dataset in each request)
         //After that, for each of those 100 datasets get all predicate and object and also dcat:publisher and dcat:Distribution related to that dataset,
         //Finally, generate a file for all those 100 datasets and mention the address for the next page
-
-//        initialQueryExecutionFactory();
 
 
         long totalNumberOfDataSets = getTotalNumberOfDataSets();
@@ -115,6 +115,9 @@ public class PaginationDumper implements CredentialsProvider {
         if (totalNumberOfDataSets == -1) {
             throw new Exception("Cannot Query the TripleStore");
         }
+
+        List<String> notUniqueTitles = getNotUniqueTitles();
+        adjustTitles(notUniqueTitles);
 
         Resource opal = ResourceFactory.createResource("http://projekt-opal.de/opal");
 
@@ -134,20 +137,12 @@ public class PaginationDumper implements CredentialsProvider {
                 if (dataSetGraph == null) {
                     throw new Exception("There is an error in getting " + dataSet + " graph");
                 }
+
                 //CKAN specific ( title in the CKAN is the key)
-                if(titleIsRepetitive(dataSet, dataSetGraph)) {
-                    String title = getTitle(dataSet, dataSetGraph).getString();
-                    String portal = getPortal(dataSet, dataSetGraph);
-                    Optional<InfoDataSet> info = infoDataSetRepository.findByTitleAndPortal(title, portal);
+                Optional<InfoDataSet> info = titleIsRepetitive(dataSet, dataSetGraph);
+                if(info.isPresent()) {
                     dataSetGraph.remove(dataSetGraph.getRequiredProperty(dataSet, DCTerms.title));
-                    InfoDataSet infoDataSet;
-                    if(info.isPresent()) {
-                        infoDataSet = info.get();
-                        infoDataSet.setCnt(infoDataSet.getCnt() + 1);
-                    } else infoDataSet = new InfoDataSet(title, portal, 1);
-                    infoDataSetRepository.save(infoDataSet);
-                    dataSetGraph.add(dataSet, DCTerms.title, ResourceFactory.createStringLiteral(
-                            String.format("%s (%s_%d)", title, portal, infoDataSet.getCnt())));
+                    dataSetGraph.add(dataSet, DCTerms.title, info.get().getGeneratedTitle());
                 }
                 model.add(dataSetGraph);
                 model.add(opal, DCAT.dataset, dataSet);
@@ -175,36 +170,87 @@ public class PaginationDumper implements CredentialsProvider {
         }
     }
 
+    private void adjustTitles(List<String> notUniqueTitles) {
+        for(String title: notUniqueTitles) {
+            List<Resource> allDataSetsForTitle = getAllDataSetsForTitle(title);
+            for(Resource dataSet : allDataSetsForTitle) {
+                String portal = getPortal(dataSet);
+                List<InfoDataSet> info = infoDataSetRepository.findByTitleAndPortal(title, portal); //optimize it by just returning the size
+                InfoDataSet infoDataSet = new InfoDataSet(title, portal, dataSet.getURI());
+                infoDataSet.setGeneratedTitle
+                        (String.format("%s (%s_%d)",title, infoDataSet.getPortal(), info.size() + 1));
+                infoDataSetRepository.save(infoDataSet);
+            }
+        }
+    }
+
+    private List<Resource> getAllDataSetsForTitle(String title) {
+        List<Resource> ret = new ArrayList<>();
+
+        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
+                "SELECT DISTINCT ?dataSet \n" +
+                "WHERE\n" +
+                "  { GRAPH ?g\n" +
+                "      { \n" +
+                "        ?dataSet dct:title ?title"+
+                "      }\n" +
+                "  }\n" +
+                "ORDER BY ?dataSet");
+
+        pss.setNsPrefixes(PREFIXES);
+        pss.setParam("title", ResourceFactory.createStringLiteral(title));
+        try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
+            ResultSet resultSet = queryExecution.execSelect();
+            while (resultSet.hasNext()) {
+                QuerySolution solution = resultSet.nextSolution();
+                Resource dataSet = solution.getResource("dataSet");
+                ret.add(dataSet);
+            }
+        }
+        return ret;
+    }
+
+    private List<String> getNotUniqueTitles() {
+
+        List<String> ret = new ArrayList<>();
+
+        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
+                "SELECT ?title \n" +
+                "WHERE\n" +
+                "  { GRAPH ?g\n" +
+                "      { \n" +
+                "        ?dataSet a dcat:Dataset .\n" +
+                "        ?dataSet dct:title ?title .\n" +
+                "      }\n" +
+                "  }\n" +
+                "GROUP BY ?title \n" +
+                "having (COUNT(DISTINCT ?dataSet ) > 1)");
+
+        pss.setNsPrefixes(PREFIXES);
+        try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
+            ResultSet resultSet = queryExecution.execSelect();
+            while (resultSet.hasNext()) {
+                QuerySolution solution = resultSet.nextSolution();
+                String title = solution.get("title").asLiteral().getString();
+                ret.add(title);
+            }
+        }
+        return ret;
+    }
+
     //should not throw exception
-    private String getPortal(Resource dataSet, Model dataSetGraph) {
+    private String getPortal(Resource dataSet) {
         String uri = dataSet.getURI();
         String[] split = uri.split("/");
         return split[2].substring(0, split[2].indexOf('.'));
     }
 
-    private boolean titleIsRepetitive(Resource dataSet, Model dataSetGraph) {
+    private Optional<InfoDataSet> titleIsRepetitive(Resource dataSet, Model dataSetGraph) {
 
-        Literal title = getTitle(dataSet, dataSetGraph);
-
-        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
-                "SELECT (COUNT(DISTINCT ?dataSet) AS ?num)\n" +
-                "WHERE\n" +
-                "{\n" +
-                "  GRAPH ?g {\n" +
-                "    ?dataSet  dct:title  ?title .\n" +
-                "  }\n" +
-                "}");
-
-        pss.setNsPrefixes(PREFIXES);
-        pss.setParam("title", title);
-        try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
-            ResultSet resultSet = queryExecution.execSelect();
-            if(resultSet.hasNext()) {
-                int num = resultSet.nextSolution().get("num").asLiteral().getInt();
-                return num > 1;
-            }
-        }
-        return false;
+        String title = getTitle(dataSet, dataSetGraph).getString();
+        String portal = getPortal(dataSet);
+        Optional<InfoDataSet> info = infoDataSetRepository.findByUri(dataSet.getURI());
+        return info;
     }
 
     private Literal getTitle(Resource dataSet, Model dataSetGraph) {

@@ -9,22 +9,25 @@ public class InfoDataSet {
     @GeneratedValue(strategy = GenerationType.AUTO)
     private long id;
 
-    @Column
+    @Column(length = 2000)
     private String title;
 
     @Column
     private String portal;
 
     @Column
-    private int cnt;
+    private String uri;
+
+    @Column(length = 2000)
+    private String generatedTitle;
 
     public InfoDataSet() {
     }
 
-    public InfoDataSet(String title, String portal, int cnt) {
+    public InfoDataSet(String title, String portal, String uri) {
         this.title = title;
         this.portal = portal;
-        this.cnt = cnt;
+        this.uri = uri;
     }
 
     public long getId() {
@@ -54,12 +57,21 @@ public class InfoDataSet {
         return this;
     }
 
-    public int getCnt() {
-        return cnt;
+    public String getUri() {
+        return uri;
     }
 
-    public InfoDataSet setCnt(int cnt) {
-        this.cnt = cnt;
+    public InfoDataSet setUri(String uri) {
+        this.uri = uri;
+        return this;
+    }
+
+    public String getGeneratedTitle() {
+        return generatedTitle;
+    }
+
+    public InfoDataSet setGeneratedTitle(String generatedTitle) {
+        this.generatedTitle = generatedTitle;
         return this;
     }
 }
