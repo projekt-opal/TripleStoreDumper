@@ -12,12 +12,12 @@ public class IndexController {
     private static final Logger logger = LoggerFactory.getLogger(IndexController.class);
 
     @Autowired
-    private PaginationDumper dumper;
+    private CrawlerTripleStoreDumper crawlerTripleStoreDumper;
 
     @GetMapping("/dump")
     public String getDump() {
         try {
-            dumper.dump();
+            crawlerTripleStoreDumper.dump();
         } catch (Exception e) {
             logger.error("{}", e);
         }

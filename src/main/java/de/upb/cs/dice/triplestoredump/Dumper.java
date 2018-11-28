@@ -1,13 +1,6 @@
 package de.upb.cs.dice.triplestoredump;
 
 import com.google.common.collect.ImmutableMap;
-import org.aksw.jena_sparql_api.http.QueryExecutionFactoryHttp;
-import org.aksw.jena_sparql_api.retry.core.QueryExecutionFactoryRetry;
-import org.apache.http.auth.AuthScope;
-import org.apache.http.auth.Credentials;
-import org.apache.http.auth.UsernamePasswordCredentials;
-import org.apache.http.client.CredentialsProvider;
-import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.jena.query.ParameterizedSparqlString;
 import org.apache.jena.query.QueryExecution;
 import org.apache.jena.query.QuerySolution;
@@ -20,8 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
@@ -31,73 +22,37 @@ import java.util.List;
 import java.util.Optional;
 
 @Component
-@EnableScheduling
-public class PaginationDumper implements CredentialsProvider {
-
-    private static final Logger logger = LoggerFactory.getLogger(PaginationDumper.class);
+public abstract class Dumper {
+    private static final Logger logger = LoggerFactory.getLogger(Dumper.class);
 
 
-    @Value("${tripleStore.url}")
-    private String tripleStoreURL;
-    @Value("${tripleStore.username}")
-    private String tripleStoreUsername;
-    @Value("${tripleStore.password}")
-    private String tripleStorePassword;
+    protected static final ImmutableMap<String, String> PREFIXES = ImmutableMap.<String, String>builder()
+            .put("dcat", "http://www.w3.org/ns/dcat#")
+            .put("dct", "http://purl.org/dc/terms/")
+            .build();
 
-    @Value("${internalFileServer.address}")
-    private String serverAddress;
+    protected static final int PAGE_SIZE = 100;
 
     @Value("${output.folderPath}")
     private String folderPath;
 
-    private org.apache.http.auth.Credentials credentials;
-
-    private org.aksw.jena_sparql_api.core.QueryExecutionFactory qef;
-
-
-    private static final ImmutableMap<String, String> PREFIXES = ImmutableMap.<String, String>builder()
-            .put("dcat", "http://www.w3.org/ns/dcat#")
-            .put("dct", "http://purl.org/dc/terms/")
-            .build();
-    private static final int PAGE_SIZE = 100;
-
+    @Value("${internalFileServer.address}")
+    private String serverAddress;
 
 
     @Autowired
     private InfoDataSetRepository infoDataSetRepository;
-
-
-
-    @Scheduled(cron = "${info.dumper.scheduler}")
-    public void scheduledDumping() {
-        try {
-            dump();
-        } catch (Exception e) {
-            logger.error("{}", e);
-        }
-    }
 
     @PostConstruct
     public void initializeAuthenticationAndQueryExecution() {
         initialQueryExecutionFactory();
     }
 
-    private void initialQueryExecutionFactory() {
-        credentials = new UsernamePasswordCredentials(tripleStoreUsername, tripleStorePassword);
+    org.aksw.jena_sparql_api.core.QueryExecutionFactory qef;
 
-        HttpClientBuilder clientBuilder = HttpClientBuilder.create();
-        clientBuilder.setDefaultCredentialsProvider(this);
-        org.apache.http.impl.client.CloseableHttpClient client = clientBuilder.build();
+    abstract void initialQueryExecutionFactory();
 
-
-        qef = new QueryExecutionFactoryHttp(
-                tripleStoreURL, new org.apache.jena.sparql.core.DatasetDescription(), client);
-        qef = new QueryExecutionFactoryRetry(qef, 5, 1000);
-//        qef = new QueryExecutionFactoryDelay(qef, 100);
-
-    }
-
-    public void dump() throws Exception {
+    void dump() throws Exception {
 
 
         logger.info("dumping is started");
@@ -140,7 +95,7 @@ public class PaginationDumper implements CredentialsProvider {
 
                 //CKAN specific ( title in the CKAN is the key)
                 Optional<InfoDataSet> info = titleIsRepetitive(dataSet, dataSetGraph);
-                if(info.isPresent()) {
+                if (info.isPresent()) {
                     dataSetGraph.remove(dataSetGraph.getRequiredProperty(dataSet, DCTerms.title));
                     dataSetGraph.add(dataSet, DCTerms.title, info.get().getGeneratedTitle());
                 }
@@ -171,79 +126,44 @@ public class PaginationDumper implements CredentialsProvider {
     }
 
     private void adjustTitles(List<String> notUniqueTitles) {
-        for(String title: notUniqueTitles) {
+        for (String title : notUniqueTitles) {
+            logger.trace("generating title for : {}", title);
             List<Resource> allDataSetsForTitle = getAllDataSetsForTitle(title);
-            for(Resource dataSet : allDataSetsForTitle) {
+            for (Resource dataSet : allDataSetsForTitle) {
                 String portal = getPortal(dataSet);
                 List<InfoDataSet> info = infoDataSetRepository.findByTitleAndPortal(title, portal); //optimize it by just returning the size
                 InfoDataSet infoDataSet = new InfoDataSet(title, portal, dataSet.getURI());
                 infoDataSet.setGeneratedTitle
-                        (String.format("%s (%s_%d)",title, infoDataSet.getPortal(), info.size() + 1));
+                        (String.format("%s (%s_%d)", title, infoDataSet.getPortal(), info.size() + 1));
                 infoDataSetRepository.save(infoDataSet);
+                logger.trace("generated title for {} is {}", title, infoDataSet.getGeneratedTitle());
             }
         }
     }
 
-    private List<Resource> getAllDataSetsForTitle(String title) {
-        List<Resource> ret = new ArrayList<>();
+    protected abstract List<Resource> getAllDataSetsForTitle(String title);
 
-        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
-                "SELECT DISTINCT ?dataSet \n" +
-                "WHERE\n" +
-                "  { GRAPH ?g\n" +
-                "      { \n" +
-                "        ?dataSet dct:title ?title"+
-                "      }\n" +
-                "  }\n" +
-                "ORDER BY ?dataSet");
+    protected abstract List<String> getNotUniqueTitles();
 
-        pss.setNsPrefixes(PREFIXES);
-        pss.setParam("title", ResourceFactory.createStringLiteral(title));
-        try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
-            ResultSet resultSet = queryExecution.execSelect();
-            while (resultSet.hasNext()) {
-                QuerySolution solution = resultSet.nextSolution();
-                Resource dataSet = solution.getResource("dataSet");
-                ret.add(dataSet);
-            }
-        }
-        return ret;
-    }
-
-    private List<String> getNotUniqueTitles() {
-
+    List<String> getTitles(ParameterizedSparqlString pss) {
         List<String> ret = new ArrayList<>();
-
-        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
-                "SELECT ?title \n" +
-                "WHERE\n" +
-                "  { GRAPH ?g\n" +
-                "      { \n" +
-                "        ?dataSet a dcat:Dataset .\n" +
-                "        ?dataSet dct:title ?title .\n" +
-                "      }\n" +
-                "  }\n" +
-                "GROUP BY ?title \n" +
-                "having (COUNT(DISTINCT ?dataSet ) > 1)");
-
-        pss.setNsPrefixes(PREFIXES);
         try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
             ResultSet resultSet = queryExecution.execSelect();
             while (resultSet.hasNext()) {
                 QuerySolution solution = resultSet.nextSolution();
                 String title = solution.get("title").asLiteral().getString();
                 ret.add(title);
+                logger.trace("getTitle: {}", title);
             }
+        } catch (Exception ex) {
+            logger.error("An error occurred in getting titles, {}", ex);
         }
+
         return ret;
     }
 
     //should not throw exception
-    private String getPortal(Resource dataSet) {
-        String uri = dataSet.getURI();
-        String[] split = uri.split("/");
-        return split[2].substring(0, split[2].indexOf('.'));
-    }
+    protected abstract String getPortal(Resource dataSet);
 
     private Optional<InfoDataSet> titleIsRepetitive(Resource dataSet, Model dataSetGraph) {
 
@@ -253,78 +173,42 @@ public class PaginationDumper implements CredentialsProvider {
         return info;
     }
 
-    private Literal getTitle(Resource dataSet, Model dataSetGraph) {
-        return dataSetGraph.getRequiredProperty(dataSet, DCTerms.title).getLiteral();
-    }
+    protected abstract Literal getTitle(Resource dataSet, Model dataSetGraph);
 
-    private Model getAllPredicatesObjectsPublisherDistributions(Resource dataSet) {
+    protected abstract Model getAllPredicatesObjectsPublisherDistributions(Resource dataSet);
+
+    Model executeConstruct(ParameterizedSparqlString pss) {
         Model model = null;
-        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
-                "CONSTRUCT { " + "?dataSet ?predicate ?object .\n" +
-                "\t?object ?p2 ?o2}\n" +
-                "WHERE { \n" +
-                "  GRAPH ?g {\n" +
-                "    ?dataSet ?predicate ?object.\n" +
-                "    OPTIONAL { ?object ?p2 ?o2 }\n" +
-                "  }\n" +
-                "}");
-
-        pss.setNsPrefixes(PREFIXES);
-        pss.setParam("dataSet", dataSet);
-
         try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
             model = queryExecution.execConstruct();
+        }  catch (Exception ex) {
+            logger.error("An error occurred in executing construct, {}", ex);
         }
         return model;
     }
 
-    private List<Resource> getListOfDataSets(int idx) {
+    protected abstract List<Resource> getListOfDataSets(int idx);
 
+    List<Resource> getResources(ParameterizedSparqlString pss) {
         List<Resource> ret = new ArrayList<>();
-
-        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
-                "SELECT DISTINCT ?dataSet\n" +
-                "WHERE { \n" +
-                "  GRAPH ?g {\n" +
-                "    ?dataSet a dcat:Dataset.\n" +
-                "    FILTER(EXISTS{?dataSet dct:title ?title.})\n" +
-                "  }\n" +
-                "}\n" +
-                "ORDER BY ?dataSet\n" +
-                "OFFSET \n" + idx +
-                "LIMIT " + PAGE_SIZE
-        );
-
-        pss.setNsPrefixes(PREFIXES);
-
         try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
             ResultSet resultSet = queryExecution.execSelect();
             while (resultSet.hasNext()) {
                 QuerySolution solution = resultSet.nextSolution();
                 Resource dataSet = solution.getResource("dataSet");
                 ret.add(dataSet);
+                logger.trace("getResource: {}", dataSet);
             }
+        }  catch (Exception ex) {
+            logger.error("An error occurred in getting resources, {}", ex);
         }
         return ret;
     }
 
+    protected abstract long getTotalNumberOfDataSets();
 
-    /**
-     * @return -1 => something went wrong, o.w. the number of distinct dataSets are return
-     */
-    private long getTotalNumberOfDataSets() {
+    long getCount(ParameterizedSparqlString pss) {
         long cnt = -1;
-        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
-                "SELECT (COUNT(DISTINCT ?dataSet) AS ?num)\n" +
-                "WHERE { \n" +
-                "  GRAPH ?g {\n" +
-                "    ?dataSet a dcat:Dataset.\n" +
-                "    FILTER(EXISTS{?dataSet dct:title ?title.})\n" +
-                "  }\n" +
-                "}");
-
-        pss.setNsPrefixes(PREFIXES);
-
         try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
             ResultSet resultSet = queryExecution.execSelect();
             while (resultSet.hasNext()) {
@@ -332,23 +216,11 @@ public class PaginationDumper implements CredentialsProvider {
                 RDFNode num = solution.get("num");
                 cnt = num.asLiteral().getLong();
             }
+        } catch (Exception ex) {
+            logger.error("An error occurred in getting Count, {}", ex);
         }
         return cnt;
     }
 
-    @Override
-    public void setCredentials(AuthScope authScope, Credentials credentials) {
-
-    }
-
-    @Override
-    public Credentials getCredentials(AuthScope authScope) {
-        return credentials;
-    }
-
-    @Override
-    public void clear() {
-
-    }
 
 }
