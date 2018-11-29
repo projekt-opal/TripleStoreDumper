@@ -16,18 +16,15 @@ public class InfoDataSet {
     private String portal;
 
     @Column
-    private String uri;
-
-    @Column(length = 2000)
-    private String generatedTitle;
+    private int cnt;
 
     public InfoDataSet() {
     }
 
-    public InfoDataSet(String title, String portal, String uri) {
+    public InfoDataSet(String title, String portal, int cnt) {
         this.title = title;
         this.portal = portal;
-        this.uri = uri;
+        this.cnt = cnt;
     }
 
     public long getId() {
@@ -57,21 +54,11 @@ public class InfoDataSet {
         return this;
     }
 
-    public String getUri() {
-        return uri;
+    public int getCnt() {
+        return cnt;
     }
 
-    public InfoDataSet setUri(String uri) {
-        this.uri = uri;
-        return this;
-    }
-
-    public String getGeneratedTitle() {
-        return generatedTitle;
-    }
-
-    public InfoDataSet setGeneratedTitle(String generatedTitle) {
-        this.generatedTitle = generatedTitle;
-        return this;
+    public void setCnt(int cnt) {
+        this.cnt = cnt;
     }
 }

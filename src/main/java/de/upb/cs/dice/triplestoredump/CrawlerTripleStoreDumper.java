@@ -8,6 +8,8 @@ import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.jena.query.ParameterizedSparqlString;
+import org.apache.jena.query.QueryExecution;
+import org.apache.jena.query.ResultSet;
 import org.apache.jena.rdf.model.Literal;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
@@ -62,43 +64,21 @@ public class CrawlerTripleStoreDumper extends Dumper implements CredentialsProvi
         }
     }
 
-
     @Override
-    protected List<Resource> getAllDataSetsForTitle(String title) {
-
+    boolean isTitleRepetitive(Resource dataSet, Model dataSetGraph) {
+        Literal title = getTitle(dataSet, dataSetGraph);
         ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
-                "SELECT DISTINCT ?dataSet \n" +
+                "SELECT (COUNT(DISTINCT ?dataSet) AS ?num)\n" +
                 "WHERE\n" +
-                "  { GRAPH ?g\n" +
-                "      { \n" +
-                "        ?dataSet dct:title ?title" +
-                "      }\n" +
+                "{\n" +
+                "  GRAPH ?g {\n" +
+                "    ?dataSet  dct:title  ?title .\n" +
                 "  }\n" +
-                "ORDER BY ?dataSet");
-
+                "}");
         pss.setNsPrefixes(PREFIXES);
-        pss.setParam("title", ResourceFactory.createStringLiteral(title));
-        return getResources(pss);
-    }
-
-    @Override
-    protected List<String> getNotUniqueTitles() {
-
-        ParameterizedSparqlString pss = new ParameterizedSparqlString("" +
-                "SELECT ?title \n" +
-                "WHERE\n" +
-                "  { GRAPH ?g\n" +
-                "      { \n" +
-                "        ?dataSet a dcat:Dataset .\n" +
-                "        ?dataSet dct:title ?title .\n" +
-                "      }\n" +
-                "  }\n" +
-                "GROUP BY ?title \n" +
-                "HAVING (COUNT(DISTINCT ?dataSet ) > 1)");
-
-        pss.setNsPrefixes(PREFIXES);
-
-        return getTitles(pss);
+        pss.setParam("title", title);
+        long cnt = getCount(pss);
+        return cnt > 1;
     }
 
     //should not throw exception
@@ -109,10 +89,6 @@ public class CrawlerTripleStoreDumper extends Dumper implements CredentialsProvi
         return split[2].substring(0, split[2].indexOf('.'));
     }
 
-    @Override
-    protected Literal getTitle(Resource dataSet, Model dataSetGraph) {
-        return dataSetGraph.getRequiredProperty(dataSet, DCTerms.title).getLiteral();
-    }
 
     @Override
     protected Model getAllPredicatesObjectsPublisherDistributions(Resource dataSet) {

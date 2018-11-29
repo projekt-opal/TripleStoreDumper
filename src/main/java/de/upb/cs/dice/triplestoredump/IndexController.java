@@ -14,10 +14,23 @@ public class IndexController {
     @Autowired
     private CrawlerTripleStoreDumper crawlerTripleStoreDumper;
 
-    @GetMapping("/dump")
+    @Autowired
+    private TripleStoreDumper tripleStoreDumper;
+
+    @GetMapping("/dumpCrawler")
     public String getDump() {
         try {
             crawlerTripleStoreDumper.dump();
+        } catch (Exception e) {
+            logger.error("{}", e);
+        }
+        return "index";
+    }
+
+    @GetMapping("/dumpTripleStore")
+    public String getDump2() {
+        try {
+            tripleStoreDumper.dump();
         } catch (Exception e) {
             logger.error("{}", e);
         }

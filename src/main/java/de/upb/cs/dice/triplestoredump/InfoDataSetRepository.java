@@ -8,7 +8,5 @@ import java.util.Optional;
 
 @Repository
 public interface InfoDataSetRepository extends CrudRepository<InfoDataSet, Long> {
-    List<InfoDataSet> findByTitleAndPortal(String string, String portal);
-
-    Optional<InfoDataSet> findByUri(String uri);
+    Optional<InfoDataSet> findByTitleAndPortal(String string, String portal);
 }

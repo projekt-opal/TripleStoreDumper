@@ -26,12 +26,12 @@ public abstract class Dumper {
     private static final Logger logger = LoggerFactory.getLogger(Dumper.class);
 
 
-    protected static final ImmutableMap<String, String> PREFIXES = ImmutableMap.<String, String>builder()
+    static final ImmutableMap<String, String> PREFIXES = ImmutableMap.<String, String>builder()
             .put("dcat", "http://www.w3.org/ns/dcat#")
             .put("dct", "http://purl.org/dc/terms/")
             .build();
 
-    protected static final int PAGE_SIZE = 100;
+    static final int PAGE_SIZE = 100;
 
     @Value("${output.folderPath}")
     private String folderPath;
@@ -71,9 +71,6 @@ public abstract class Dumper {
             throw new Exception("Cannot Query the TripleStore");
         }
 
-        List<String> notUniqueTitles = getNotUniqueTitles();
-        adjustTitles(notUniqueTitles);
-
         Resource opal = ResourceFactory.createResource("http://projekt-opal.de/opal");
 
         for (int idx = 0; idx < totalNumberOfDataSets; idx += PAGE_SIZE) {
@@ -94,10 +91,21 @@ public abstract class Dumper {
                 }
 
                 //CKAN specific ( title in the CKAN is the key)
-                Optional<InfoDataSet> info = titleIsRepetitive(dataSet, dataSetGraph);
-                if (info.isPresent()) {
+                if(isTitleRepetitive(dataSet, dataSetGraph)) {
+                    String title = getTitle(dataSet, dataSetGraph).getString();
+                    String portal = getPortal(dataSet);
+                    Optional<InfoDataSet> info = infoDataSetRepository.findByTitleAndPortal(title, portal);
                     dataSetGraph.remove(dataSetGraph.getRequiredProperty(dataSet, DCTerms.title));
-                    dataSetGraph.add(dataSet, DCTerms.title, info.get().getGeneratedTitle());
+                    InfoDataSet infoDataSet;
+                    if(info.isPresent()) {
+                        infoDataSet = info.get();
+                        infoDataSet.setCnt(infoDataSet.getCnt() + 1);
+                    } else infoDataSet = new InfoDataSet(title, portal, 1);
+                    infoDataSetRepository.save(infoDataSet);
+                    String generatedTitle = String.format("%s (%s_%d)", title, portal, infoDataSet.getCnt());
+                    dataSetGraph.add(dataSet, DCTerms.title, ResourceFactory.createStringLiteral(
+                            generatedTitle));
+                    logger.trace("generated title is {}", generatedTitle);
                 }
                 model.add(dataSetGraph);
                 model.add(opal, DCAT.dataset, dataSet);
@@ -125,55 +133,14 @@ public abstract class Dumper {
         }
     }
 
-    private void adjustTitles(List<String> notUniqueTitles) {
-        for (String title : notUniqueTitles) {
-            logger.trace("generating title for : {}", title);
-            List<Resource> allDataSetsForTitle = getAllDataSetsForTitle(title);
-            for (Resource dataSet : allDataSetsForTitle) {
-                String portal = getPortal(dataSet);
-                List<InfoDataSet> info = infoDataSetRepository.findByTitleAndPortal(title, portal); //optimize it by just returning the size
-                InfoDataSet infoDataSet = new InfoDataSet(title, portal, dataSet.getURI());
-                infoDataSet.setGeneratedTitle
-                        (String.format("%s (%s_%d)", title, infoDataSet.getPortal(), info.size() + 1));
-                infoDataSetRepository.save(infoDataSet);
-                logger.trace("generated title for {} is {}", title, infoDataSet.getGeneratedTitle());
-            }
-        }
-    }
-
-    protected abstract List<Resource> getAllDataSetsForTitle(String title);
-
-    protected abstract List<String> getNotUniqueTitles();
-
-    List<String> getTitles(ParameterizedSparqlString pss) {
-        List<String> ret = new ArrayList<>();
-        try (QueryExecution queryExecution = qef.createQueryExecution(pss.asQuery())) {
-            ResultSet resultSet = queryExecution.execSelect();
-            while (resultSet.hasNext()) {
-                QuerySolution solution = resultSet.nextSolution();
-                String title = solution.get("title").asLiteral().getString();
-                ret.add(title);
-                logger.trace("getTitle: {}", title);
-            }
-        } catch (Exception ex) {
-            logger.error("An error occurred in getting titles, {}", ex);
-        }
-
-        return ret;
+    Literal getTitle(Resource dataSet, Model dataSetGraph) {
+        return dataSetGraph.getRequiredProperty(dataSet, DCTerms.title).getLiteral();
     }
 
     //should not throw exception
     protected abstract String getPortal(Resource dataSet);
 
-    private Optional<InfoDataSet> titleIsRepetitive(Resource dataSet, Model dataSetGraph) {
-
-        String title = getTitle(dataSet, dataSetGraph).getString();
-        String portal = getPortal(dataSet);
-        Optional<InfoDataSet> info = infoDataSetRepository.findByUri(dataSet.getURI());
-        return info;
-    }
-
-    protected abstract Literal getTitle(Resource dataSet, Model dataSetGraph);
+    abstract boolean isTitleRepetitive(Resource dataSet, Model dataSetGraph);
 
     protected abstract Model getAllPredicatesObjectsPublisherDistributions(Resource dataSet);
 
