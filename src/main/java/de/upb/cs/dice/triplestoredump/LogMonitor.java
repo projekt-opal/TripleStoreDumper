@@ -16,7 +16,7 @@ public class LogMonitor {
     private static final Logger logger = LoggerFactory.getLogger(LogMonitor.class.getName());
 
     //
-    @Before("execution(* de.upb.cs.dice.triplestoredump.CrawlerTripleStoreDumper..*(..)) ")
+    @Before("execution(* de.upb.cs.dice.triplestoredump.Dumper..*(..)) ")
     public void beforeLogger(JoinPoint joinPoint) {
         StringBuilder res = new StringBuilder();
         Arrays.stream(joinPoint.getArgs()).forEach((obj) -> res.append(obj).append(", "));
@@ -26,7 +26,7 @@ public class LogMonitor {
         logger.debug("Before Call: " + joinPoint.getClass().getName() + "." + joinPoint.getSignature().getName() + ", input args: [" + res + "]");
     }
 
-    @After("execution(* de.upb.cs.dice.triplestoredump.CrawlerTripleStoreDumper..*(..)) ")
+    @After("execution(* de.upb.cs.dice.triplestoredump.Dumper..*(..)) ")
     public void afterLogger(JoinPoint joinPoint) {
         StringBuilder res = new StringBuilder();
         Arrays.stream(joinPoint.getArgs()).forEach((obj) -> res.append(obj).append(", "));

@@ -28,7 +28,7 @@
     </appender>
 
     <root level="DEBUG">
-        <!--<appender-ref ref="FILE-AUDIT" />-->
+        <appender-ref ref="FILE-AUDIT" />
         <appender-ref ref="CONSOLE" />
     </root>
 </configuration>

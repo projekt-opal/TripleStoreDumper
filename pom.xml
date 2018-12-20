@@ -4,11 +4,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>de.upb.cs.dice</groupId>
-    <artifactId>triplestore-sump</artifactId>
-    <version>1</version>
+    <artifactId>triplestore-dump</artifactId>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>triplestore-sump</name>
+    <name>triplestore-dump</name>
     <description></description>
 
     <parent>

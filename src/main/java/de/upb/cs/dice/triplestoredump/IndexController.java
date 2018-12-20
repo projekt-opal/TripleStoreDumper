@@ -11,29 +11,21 @@ public class IndexController {
 
     private static final Logger logger = LoggerFactory.getLogger(IndexController.class);
 
-    @Autowired
-    private CrawlerTripleStoreDumper crawlerTripleStoreDumper;
+    private final Dumper dumper;
 
     @Autowired
-    private TripleStoreDumper tripleStoreDumper;
+    public IndexController(Dumper dumper) {
+        this.dumper = dumper;
+    }
 
-    @GetMapping("/dumpCrawler")
+    @GetMapping("/dump")
     public String getDump() {
         try {
-            crawlerTripleStoreDumper.dump();
+            dumper.dump();
         } catch (Exception e) {
             logger.error("{}", e);
         }
         return "index";
     }
 
-    @GetMapping("/dumpTripleStore")
-    public String getDump2() {
-        try {
-            tripleStoreDumper.dump();
-        } catch (Exception e) {
-            logger.error("{}", e);
-        }
-        return "index";
-    }
 }
