@@ -21,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
@@ -93,10 +92,12 @@ public class Dumper implements CredentialsProvider {
 //        }
 //    }
 
-    void dump() throws Exception {
+    public void dump() throws Exception {
 
 
         logger.info("dumping is started");
+
+        logger.info("TS_URL: " + tripleStoreURL);
 
         infoDataSetRepository.deleteAll();
 
@@ -125,7 +126,7 @@ public class Dumper implements CredentialsProvider {
             for (Resource dataSet : listOfDataSets) {
 
                 Resource portal = getPortal(dataSet);
-                if(portal == null) {
+                if (portal == null) {
                     logger.warn("portal is null for dataset {}", dataSet);
                     continue;
                 }
