@@ -55,6 +55,8 @@ public class Dumper implements CredentialsProvider {
     private String tripleStoreUsername;
     @Value("${tripleStore.password}")
     private String tripleStorePassword;
+    @Value("${dumper.pagination}")
+    private String addPaginationInfo;
     private org.apache.http.auth.Credentials credentials;
 
     private final InfoDataSetRepository infoDataSetRepository;
@@ -160,19 +162,20 @@ public class Dumper implements CredentialsProvider {
                 model.add(portal, DCAT.dataset, dataSet);
             }
 
-            //add pagination info
-            String addressPattern = serverAddress + "/model%d.ttl";
-            Resource thisPageAddress = ResourceFactory.createResource(String.format(addressPattern, (idx / PAGE_SIZE + 1)));
-            model.add(thisPageAddress, RDF.type, NS4.PagedCollection);
-            model.add(thisPageAddress, NS4.firstPage,
-                    ResourceFactory.createResource(String.format(addressPattern, 1)));
-            if (idx + PAGE_SIZE < totalNumberOfDataSets)
-                model.add(thisPageAddress, NS4.nextPage,
-                        ResourceFactory.createResource(String.format(addressPattern, ((idx / PAGE_SIZE + 1) + 1))));
-            model.add(thisPageAddress, NS4.lastPage,
-                    ResourceFactory.createResource(String.format(addressPattern, (totalNumberOfDataSets / PAGE_SIZE + 1))));
-            model.add(thisPageAddress, NS4.itemsPerPage, ResourceFactory.createTypedLiteral(PAGE_SIZE));
-            model.add(thisPageAddress, NS4.totalItems, ResourceFactory.createTypedLiteral(totalNumberOfDataSets));
+            if(Boolean.parseBoolean(addPaginationInfo)) {
+                String addressPattern = serverAddress + "/model%d.ttl";
+                Resource thisPageAddress = ResourceFactory.createResource(String.format(addressPattern, (idx / PAGE_SIZE + 1)));
+                model.add(thisPageAddress, RDF.type, NS4.PagedCollection);
+                model.add(thisPageAddress, NS4.firstPage,
+                        ResourceFactory.createResource(String.format(addressPattern, 1)));
+                if (idx + PAGE_SIZE < totalNumberOfDataSets)
+                    model.add(thisPageAddress, NS4.nextPage,
+                            ResourceFactory.createResource(String.format(addressPattern, ((idx / PAGE_SIZE + 1) + 1))));
+                model.add(thisPageAddress, NS4.lastPage,
+                        ResourceFactory.createResource(String.format(addressPattern, (totalNumberOfDataSets / PAGE_SIZE + 1))));
+                model.add(thisPageAddress, NS4.itemsPerPage, ResourceFactory.createTypedLiteral(PAGE_SIZE));
+                model.add(thisPageAddress, NS4.totalItems, ResourceFactory.createTypedLiteral(totalNumberOfDataSets));
+            }
 
             //write model
             String fileName = String.format("model%d.ttl", (idx / PAGE_SIZE + 1));
